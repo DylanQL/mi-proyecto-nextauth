@@ -1,23 +1,70 @@
-// Importa la función NextAuth, que se utiliza para manejar la autenticación en Next.js
 import NextAuth from "next-auth";
-
-// Importa el proveedor de autenticación de Google para NextAuth
+import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import { getUserByEmail, validatePassword } from "@/lib/auth/user";
 
-// Configura NextAuth con los proveedores de autenticación deseados
 const handler = NextAuth({
   providers: [
-    // Configuración del proveedor de Google
+    // Provider para Google OAuth
     GoogleProvider({
-      // ID del cliente de Google OAuth, almacenado en variables de entorno
       clientId: process.env.GOOGLE_CLIENT_ID as string,
-      
-      // Secreto del cliente de Google OAuth, también en variables de entorno
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
     }),
+    
+    // Provider personalizado con credenciales (email/password)
+    CredentialsProvider({
+      name: "Credentials",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+
+        const user = await getUserByEmail(credentials.email);
+        
+        if (!user) {
+          return null;
+        }
+
+        const isValidPassword = await validatePassword(user, credentials.password);
+        
+        if (!isValidPassword) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.image,
+        };
+      }
+    }),
   ],
+  session: {
+    strategy: "jwt",
+  },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (token && session.user) {
+        session.user.id = token.id as string;
+      }
+      return session;
+    },
+  },
+  pages: {
+    signIn: "/login",
+  },
+  secret: process.env.NEXTAUTH_SECRET,
 });
 
-// Exporta el handler para los métodos GET y POST
-// Esto permite que Next.js maneje las solicitudes de autenticación con NextAuth
 export { handler as GET, handler as POST };
